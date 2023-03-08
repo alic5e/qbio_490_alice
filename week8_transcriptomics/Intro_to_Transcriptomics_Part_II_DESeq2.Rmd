@@ -6,12 +6,13 @@ updated: 02/26/23
 ---
 
 ```{r setup}
-    knitr::opts_knit$set(root.dir = normalizePath("/PATH/TO/analysis_data")) 
+    knitr::opts_knit$set(root.dir = normalizePath("/Users/aliceeeee/Desktop/Spring23/QBIO490/qbio_490_alice/analysis_data")) 
 ```
 
 ```{r}
 # install "DESeq2" using BiocManager::install()
-
+BiocManager::install("DESeq2")
+library(DESeq2)
 # load DESEq2
 
 ```
@@ -19,9 +20,9 @@ updated: 02/26/23
 ```{r}
 # Read in csv files
 
-rna_counts <- 
-rna_genes <- 
-rna_clinical <- 
+rna_counts <- read.csv("/Users/aliceeeee/Desktop/Spring23/QBIO490/qbio_490_alice/analysis_data/brca_rna_count_data.csv")
+rna_genes <- read.csv("/Users/aliceeeee/Desktop/Spring23/QBIO490/qbio_490_alice/analysis_data/brca_rna_gene_data.csv")
+rna_clinical <- read.csv("/Users/aliceeeee/Desktop/Spring23/QBIO490/qbio_490_alice/analysis_data/brca_rna_clincial_data.csv")
 
 ```
 
@@ -35,7 +36,7 @@ Use factor() to convert rna_clinical$age_category into a factor.
 ?factor
 
 # write code here
-rna_clinical$age_category <- factor()
+rna_clinical$age_category <- factor(rna_clinical$age_category)
 
 ```
 
@@ -55,40 +56,46 @@ Just like we did to age_category, convert these columns into the factor data typ
 
 ```{r}
 # write code here
-
+rna_clinical$ajcc_pathologic_stage <- factor(rna_clinical$ajcc_pathologic_stage)
+rna_clinical$definition <- factor(rna_clinical$definition)
+head(rna_clinical$ajcc_pathologic_stage)
+head(rna_clinical$definition)
 ```
 
 For DESeq2 to run, none of our variables can contain NAs. Just to see if there are NAs in age_category, ajcc_pathologic_stage, and your chosen variable by calling sum() on is.na() on the column.
 
 ```{r}
 # write code here
-
+sum(is.na(rna_clinical$age_category))
+sum(is.na(rna_clinical$ajcc_pathologic_stage))
+sum(is.na(rna_clinical$definition))
 ```
 
 If you get a non-zero number (aka there is at least one NA value in the column), create a boolean mask and get rid of any patients with an NA value. Make sure you delete these patients from both the rna_clinical data frame and the rna_counts data frame.
 
 ```{r}
-na_mask <-  # you can use multiple NA masks if you have multiple columns with NA values (or you can do it all in one!)
+na_mask <-ifelse(is.na(rna_clinical$age_category),F,ifelse(is.na(rna_clinical$ajcc_pathologic_stage),F,T))
   
-rna_clinical <-  # think about where the mask goes in the df[rows, columns] notation
+rna_clinical <- rna_clinical[na_mask,]
 
-rna_counts <-  # does the mask go in the same or opposite location?
+rna_counts <- rna_counts[,na_mask]
 ```
 
 Now, let's move on to processing the rna_counts df. Here, we should remove all genes where the total number of counts (across all patients) is less than 10.
 
 ```{r}
+rna_counts <- read.table("/Users/aliceeeee/Desktop/Spring23/QBIO490/qbio_490_alice/analysis_data/brca_rna_count_data.csv",sep = ',',row.names = 1, header = TRUE)
 # use rowSums() to create a list with the total number of counts of each gene
-row_sums <-
+row_sums <-rowSums(rna_counts)
 
 # create a boolean mask where genes with < 10 total counts are FALSE, and genes with >= 10 total counts are TRUE
-low_counts_mask <- 
+low_counts_mask <- ifelse(row_sums<10,F,T)
 
 # rewrite the rna_counts df, subsetting for only genes with >= 10 total counts
-rna_counts <- 
+rna_counts <- rna_counts[low_counts_mask,]
 
 #update rna_genes with the low_counts_mas
-rna_genes <-
+rna_genes <-rna_genes[low_counts_mask,]
 ```
 
 Now we're ready for the analysis!
@@ -107,9 +114,9 @@ To break down what analysis actually takes place within the DESeq2 pipeline:
 
 ```{r}
 ?DESeqDataSetFromMatrix
-dds <- DESeqDataSetFromMatrix(countData = FILL IN,
-                             colData = FILL IN,
-                             design = ~covar1 + covar2 + condition)
+dds <- DESeqDataSetFromMatrix(countData = rna_counts,
+                             colData = rna_clinical,
+                             design = ~ajcc_pathologic_stage + definition + age_category)
 
 ?DESeq
 dds_obj <- DESeq(dds) # note: this will likely take a long time (ie 45 minutes to 2 hours)
@@ -119,7 +126,7 @@ resultsNames(dds_obj)  # see what comparisons got run
 
 # get the young vs. old comparison
 ?results
-results <- results(dds_obj, format = "DataFrame", contrast = c("age_category", "FILL IN", "FILL IN")) # this is case sensitive so be careful to match it with your age_category factors closely!
+results <- results(dds_obj, format = "DataFrame", contrast = c("age_category", "Young", "Old")) # this is case sensitive so be careful to match it with your age_category factors closely!
 ```
 
 ###### (3) Analyzing and saving the data
@@ -128,7 +135,9 @@ First, explore the results df using head(), View(), and dim().
 
 ```{r}
 # write code here
-
+head(results)
+View(results)
+dim(results)
 ```
 
 We're not interested in all of these columns, so use data.frame() to write results with the following columns in this order: gene name (from rna_genes), gene id (from results rownames), log2foldchange, pvalue, padj, -log10(padj).
@@ -139,11 +148,13 @@ Rename the columns using colnames(). Note: to get -log10, simply write "-log10(f
 
 ```{r}
 # write code here, replace column#'s
-results <- data.frame(column1, column2, column3, etc.)
+genename_mask<-ifelse(rna_genes$gene_id %in% results@rownames,T,F)
+rna_genes<-rna_genes[genename_mask,]
+results <- data.frame(rna_genes$gene_name,rna_genes$gene_id,results$log2FoldChange,results$pvalue,results$padj,-log10(results$padj))
 
 # HINT: to get the gene names, you will need to create a boolean mask that is T when rna_genes$gene_id %in% results@rownames, and F if otherwise, then use this mask to subset rna_genes$gene_names for only the names that are in the results df
 
-colnames(results) <- c("col1_name", "col2_name", "etc.") ## FIX
+colnames(results) <- c("gene_name","gene_id","log2foldchange","pvalue","padj","-log10padj") ## FIX
 ```
 
 It's oftentimes most interesting to look at genes that are highly over/under expressed at a significance level p < 0.05. 
@@ -151,7 +162,8 @@ It's oftentimes most interesting to look at genes that are highly over/under exp
 First, select rows (genes) that have a padj value < 0.05.
 
 ```{r}
-sig_results <- 
+sig_mask<-ifelse(results$pvalue<0.05,T,F)
+sig_results <- results[sig_mask,]
 ```
 
 Now, sort the data frame by log2foldchange, descending. To do this, use the order() function. The order() function returns a vector of the sorted indexes of your chosen data, from smallest to largest. For example:
@@ -173,55 +185,61 @@ my_example_df # check your df to see if it is sorted by the y values
 Use the logic above as well as sig_results to create a dataframe called up_reg_results. This df should be sorted by log2foldchange descending (take a look at the decreasing argument). Note that this can also be done in one line by bypassing the use of order_indexes as an intermediate variable.
 
 ```{r}
-up_reg_results <- 
+up_reg_results <- results[order(results$log2foldchange,decreasing = TRUE),]
 ```
 
 Rewrite up_reg_results to have only the genes where the log2foldchange is > 1 (ie genes that are 2x or greater expressed in one population over the other).
 
 ```{r}
 # write code here
-up_reg_results <- 
+log2_mask<-ifelse(up_reg_results$log2foldchange>1,T,F)
+up_reg_results <- up_reg_results[log2_mask,]
 ```
 
 Repeat the same steps to create a sorted data frame called down_reg_results (this time select for all genes where log2foldchange is < -1 and sort it ascending by log2foldchange).
 
 ```{r}
 # write code here
-
+down_reg_results <- results[order(results$log2foldchange,decreasing = FALSE),]
+log2_mask_2<-ifelse(down_reg_results$log2foldchange<(-1),T,F)
+down_reg_results<-down_reg_results[log2_mask_2,]
 ```
 
 Call head() on both up_reg_results and down_reg_results.
 
 ```{r}
 # write code here
-
+head(up_reg_results)
+head(down_reg_results)
 ```
 
 Notice that the row names are the old indexes from before we sorted. Create new row names that are more descriptive (ie. gene_id). 
 
 ```{r}
 # write code here
-
+#created
 ```
 
 Call head() again, and choose one up regulated (overexpressed) gene and one down regulated (underexpressed) gene and fill out the following information:
 
-Gene ensembl id:
-Log2FoldChange:
-p-adj value:
-More highly expressed in young or old patients:
-Google the gene. What is its full name, and what appears to be its function? Genecards generally has a pretty good summary:
+Gene ensembl id:ENSG00000185559.16
+Log2FoldChange:3.58
+p-adj value:NA
+More highly expressed in young or old patients:young
+Google the gene. What is its full name, and what appears to be its function? Genecards generally has a pretty good summary:Delta Like Non-Canonical Notch Ligand 1,encodes a transmembrane protein that contains multiple epidermal growth factor repeats that functions as a regulator of cell growth.
 
-Gene ensembl id:
-Log2FoldChange:
-p-adj value:
-More highly expressed in young or old patients:
-Google the gene. What is its full name, and what appears to be its function? Genecards generally has a pretty good summary:
+Gene ensembl id:ENSG00000206917.1
+Log2FoldChange:-8.62
+p-adj value:4.99e-04
+More highly expressed in young or old patients:old
+Google the gene. What is its full name, and what appears to be its function? Genecards generally has a pretty good summary:RNA, U1 small nuclear 52, pseudogene
 
 Write the results, up_reg_results, and down_reg_results df's to analysis_data using write.csv().
 
 ```{r}
 # write code here
+write.csv(up_reg_results, "/Users/aliceeeee/Desktop/Spring23/QBIO490/qbio_490_alice/analysis_data/up_reg_results.csv", row.names = TRUE)
+write.csv(down_reg_results, "/Users/aliceeeee/Desktop/Spring23/QBIO490/qbio_490_alice/analysis_data/down_reg_results.csv", row.names = TRUE)
 ```
 
 ###### (4) Creating volcano plots
@@ -243,6 +261,10 @@ There are many general plotting functions you can use to create a volcano plot (
 
 ```{r}
 # install (using BiocManager) and load "EnhancedVolcano"
+up_reg_results<-read.csv("/Users/aliceeeee/Desktop/Spring23/QBIO490/qbio_490_alice/analysis_data/up_reg_results.csv")
+down_reg_results<-read.csv("/Users/aliceeeee/Desktop/Spring23/QBIO490/qbio_490_alice/analysis_data/down_reg_results.csv")
+BiocManager::install("EnhancedVolcano")
+library(EnhancedVolcano)
 
 ```
 
@@ -253,6 +275,11 @@ Remember that you may need to include par(mar=c(1,1,1,1)) before your plotting f
 
 ```{r}
 # create plot here
+par(mar=c(1,1,1,1))
+  EnhancedVolcano(up_reg_results,
+    lab = rownames(up_reg_results),
+    x = 'log2foldchange',
+    y = 'X.log10padj')
 
 ```
 
@@ -260,5 +287,18 @@ Skim through section 4 of the package documentation, and create an advanced volc
 
 ```{r}
 # create plot here
+jpeg("/Users/aliceeeee/Desktop/Spring23/QBIO490/qbio_490_alice/week8_transcriptomics/volcano.jpg")
+EnhancedVolcano(up_reg_results,
+    lab = rownames(up_reg_results),
+    x = 'log2foldchange',
+    y = 'pvalue',
+    pCutoff = 10e-16,
+    FCcutoff = 1.5,
+    pointSize = 3.0,
+    labSize = 6.0,
+    shape = c(1, 4, 23, 25),
+    colAlpha = 1)
+
+dev.off()
 ```
 
